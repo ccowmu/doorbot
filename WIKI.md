@@ -126,6 +126,8 @@ The `doorbot-sync.sh` script runs every minute via systemd timer:
 
 ## Sounds
 
+## Sounds
+
 The doorbot plays a random `.wav` file each time the door unlocks. The server can also request a specific sound by name.
 
 ### Adding Sounds
@@ -241,9 +243,9 @@ git -C /home/doorbot/doorbot fetch origin    # Can it reach GitHub?
 ## See Also
 
 ### LEDBox (Office Lighting)
-- **Wiki:** [LEDBox WIKI](https://github.com/ccowmu/LEDBox/blob/main/WIKI.md)
-- **GitHub:** [ccowmu/LEDBox](https://github.com/ccowmu/LEDBox)
+- **Wiki:** [https://cclub.cs.wmich.edu/wiki/LEDBox](https://cclub.cs.wmich.edu/wiki/LEDBox)
+- **GitHub:** [https://github.com/ccowmu/LEDBox](https://github.com/ccowmu/LEDBox)
 
 ### Office-IoT (Central Server)
-- **Wiki:** [Office-IoT WIKI](https://github.com/ccowmu/Office-IoT/blob/main/WIKI.md)
-- **GitHub:** [ccowmu/Office-IoT](https://github.com/ccowmu/Office-IoT)
+- **Wiki:** [https://cclub.cs.wmich.edu/wiki/Office-IoT](https://cclub.cs.wmich.edu/wiki/Office-IoT)
+- **GitHub:** [https://github.com/ccowmu/Office-IoT](https://github.com/ccowmu/Office-IoT)
