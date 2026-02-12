@@ -1,0 +1,9 @@
+[Unit]
+Description=Sync doorbot repo from GitHub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=doorbot
+ExecStart=/home/doorbot/doorbot/doorbot-sync.sh
