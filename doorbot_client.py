@@ -7,6 +7,7 @@ import time
 import requests
 import subprocess
 import os
+import json
 import random
 from datetime import datetime
 
@@ -30,6 +31,13 @@ MOTOR_DUTY_CYCLE = 50
 
 # Sound
 SOUNDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sounds')
+
+# Local backup log file
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'unlock_log.json')
+
+# Track state for health reporting
+start_time = time.time()
+last_unlock_time = None
 
 def get_timestamp():
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -74,6 +82,85 @@ def sync_sound_list():
     except Exception as e:
         print(f"[{get_timestamp()}] Sound list sync error: {e}")
 
+def log_unlock(sound_played, sender=''):
+    """Log an unlock event to the server and local backup file."""
+    global last_unlock_time
+    last_unlock_time = time.time()
+    event = {
+        'timestamp': get_timestamp(),
+        'epoch': int(time.time()),
+        'sound': sound_played or 'random',
+        'sender': sender,
+    }
+
+    # POST to server
+    try:
+        requests.post(
+            SERVER_URL + "/log",
+            json=event,
+            headers={"Authorization": "Bearer " + API_KEY},
+            timeout=5,
+        )
+        print(f"[{get_timestamp()}] Unlock event logged to server")
+    except Exception as e:
+        print(f"[{get_timestamp()}] Failed to log to server: {e}")
+
+    # Local backup
+    try:
+        log_data = []
+        if os.path.isfile(LOG_FILE):
+            with open(LOG_FILE, 'r') as f:
+                log_data = json.load(f)
+        log_data.append(event)
+        # Keep last 100 entries
+        log_data = log_data[-100:]
+        with open(LOG_FILE, 'w') as f:
+            json.dump(log_data, f, indent=2)
+    except Exception as e:
+        print(f"[{get_timestamp()}] Failed to write local log: {e}")
+
+def send_heartbeat():
+    """Send health heartbeat to the server."""
+    try:
+        cpu_temp = None
+        try:
+            with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
+                cpu_temp = round(int(f.read().strip()) / 1000.0, 1)
+        except Exception:
+            pass
+
+        mem_info = {}
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    parts = line.split()
+                    if parts[0] in ('MemTotal:', 'MemAvailable:'):
+                        mem_info[parts[0].rstrip(':')] = int(parts[1])
+        except Exception:
+            pass
+
+        mem_used_pct = None
+        if 'MemTotal' in mem_info and 'MemAvailable' in mem_info:
+            mem_used_pct = round(100 * (1 - mem_info['MemAvailable'] / mem_info['MemTotal']), 1)
+
+        heartbeat = {
+            'timestamp': get_timestamp(),
+            'uptime_seconds': int(time.time() - start_time),
+            'last_unlock': datetime.fromtimestamp(last_unlock_time).strftime('%Y-%m-%d %H:%M:%S') if last_unlock_time else None,
+            'cpu_temp_c': cpu_temp,
+            'memory_used_pct': mem_used_pct,
+        }
+
+        requests.post(
+            SERVER_URL + "/health/doorbot",
+            json=heartbeat,
+            headers={"Authorization": "Bearer " + API_KEY},
+            timeout=5,
+        )
+        print(f"[{get_timestamp()}] Heartbeat sent")
+    except Exception as e:
+        print(f"[{get_timestamp()}] Heartbeat error: {e}")
+
 def play_sound(sound=None):
     """Play a sound file. If sound is 'none', skip playback (sneaky mode).
     If sound is specified, play that; otherwise pick random.
@@ -103,12 +190,18 @@ def play_sound(sound=None):
         print(f"[{get_timestamp()}] Sound error: {e}")
         return None
 
-def unlock_door(pwm, sound=None):
+def unlock_door(pwm, sound=None, hold_time=0, sender=''):
     print(f"\n{'='*60}")
     print(f"[{get_timestamp()}] UNLOCKING DOOR")
+    if sender:
+        print(f"[{get_timestamp()}] Triggered by: {sender}")
     print(f"{'='*60}")
 
+    # Use configurable hold time from server, fall back to default
+    actual_hold_time = hold_time if hold_time > 0 else UNLOCK_HOLD_TIME
+
     sound_proc = None
+    sound_played = sound
     try:
         # Power on relay
         print(f"[{get_timestamp()}] Activating relay...")
@@ -122,10 +215,10 @@ def unlock_door(pwm, sound=None):
 
         # Wait until limit switch triggers
         timeout = 30
-        start_time = time.time()
+        start = time.time()
 
         while GPIO.input(BUTTON_PIN) == GPIO.HIGH:  # HIGH = not pressed
-            if time.time() - start_time > timeout:
+            if time.time() - start > timeout:
                 print(f"[{get_timestamp()}] TIMEOUT!")
                 break
             time.sleep(0.1)
@@ -134,9 +227,12 @@ def unlock_door(pwm, sound=None):
         print(f"[{get_timestamp()}] Unlocked!")
         sound_proc = play_sound(sound)
 
+        # Log the unlock event
+        log_unlock(sound_played, sender)
+
         # Hold door open
-        print(f"[{get_timestamp()}] Holding for {UNLOCK_HOLD_TIME}s...")
-        time.sleep(UNLOCK_HOLD_TIME)
+        print(f"[{get_timestamp()}] Holding for {actual_hold_time}s...")
+        time.sleep(actual_hold_time)
 
         # Kill sound if still playing after max duration
         if sound_proc and sound_proc.poll() is None:
@@ -171,6 +267,7 @@ def main():
 
     try:
         sync_sound_list()
+        send_heartbeat()
         while True:
             status = poll_server()
             if status is None:
@@ -181,10 +278,16 @@ def main():
             else:
                 consecutive_errors = 0
                 if status.get('letmein', False):
-                    unlock_door(pwm, sound=status.get('sound', ''))
+                    unlock_door(
+                        pwm,
+                        sound=status.get('sound', ''),
+                        hold_time=int(status.get('hold_time', 0)),
+                        sender=status.get('sender', ''),
+                    )
             poll_count += 1
             if poll_count >= 60:
                 sync_sound_list()
+                send_heartbeat()
                 poll_count = 0
             time.sleep(POLL_INTERVAL)
     except KeyboardInterrupt:
