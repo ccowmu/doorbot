@@ -19,7 +19,7 @@ Door Bot is the automated door lock system for the CCaWMU office. It lets club m
                                                                               └─────────────┘
 ```
 
-1. A user visits the web UI at `http://yakko.cs.wmich.edu:8878` and clicks **Unlock Door**
+1. A user sends `$letmein` in Matrix chat (or visits the web UI at `http://yakko.cs.wmich.edu:8878`)
 2. The server sets an unlock flag
 3. The Pi client polls the server every second — when it sees the flag, it:
    - Powers the relay and drives the stepper motor to turn the deadbolt
@@ -28,6 +28,18 @@ Door Bot is the automated door lock system for the CCaWMU office. It lets club m
    - Holds the door unlocked for **10 seconds**
    - Reverses the motor to re-lock
 4. The server can optionally specify which sound to play
+
+## Chat Commands
+
+Control the door from Matrix chat:
+
+```
+$letmein                Unlock the door (random sound)
+$letmein <sound.wav>    Unlock and play a specific sound
+$letmein sneaky         Unlock silently (no sound)
+$letmein sounds         List available sounds
+$letmein help           Show help message
+```
 
 ---
 
@@ -96,6 +108,8 @@ doorbot/
 | `doorbot-sync.timer` | Every 60s: pulls from GitHub, restarts client if code changed. |
 | `sounds-sync.timer` | Every 5min: syncs `.wav` files from Proton Drive via rclone. |
 
+The client also pushes its available sound list to the server every 60 seconds via `POST /sounds`, so `$letmein sounds` works and sound name validation is accurate.
+
 ### Auto-Sync (GitHub → Pi)
 
 The `doorbot-sync.sh` script runs every minute via systemd timer:
@@ -161,7 +175,7 @@ systemctl status doorbot-sync.timer
 sudo -u doorbot bash /home/doorbot/doorbot/sync_sounds.sh
 
 # Test server connection
-curl http://yakko.cs.wmich.edu:8878/status
+curl http://yakko.cs.wmich.edu:8878/health
 ```
 
 ---

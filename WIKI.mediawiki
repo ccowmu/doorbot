@@ -15,7 +15,7 @@
                                                                               └─────────────┘
 </pre>
 
-# A user visits the web UI at <code>http://yakko.cs.wmich.edu:8878</code> and clicks '''Unlock Door'''
+# A user sends <code>$letmein</code> in Matrix chat (or visits the web UI at <code>http://yakko.cs.wmich.edu:8878</code>)
 # The server sets an unlock flag
 # The Pi client polls the server every second — when it sees the flag, it:
 #* Powers the relay and drives the stepper motor to turn the deadbolt
@@ -24,6 +24,18 @@
 #* Holds the door unlocked for '''10 seconds'''
 #* Reverses the motor to re-lock
 # The server can optionally specify which sound to play
+
+== Chat Commands ==
+
+Control the door from Matrix chat:
+
+<pre>
+$letmein                Unlock the door (random sound)
+$letmein <sound.wav>    Unlock and play a specific sound
+$letmein sneaky         Unlock silently (no sound)
+$letmein sounds         List available sounds
+$letmein help           Show help message
+</pre>
 
 == Hardware ==
 
@@ -115,6 +127,8 @@ doorbot/
 | <code>sounds-sync.timer</code> || Every 5min: syncs <code>.wav</code> files from Proton Drive via rclone.
 |}
 
+The client also pushes its available sound list to the server every 60 seconds via <code>POST /sounds</code>, so <code>$letmein sounds</code> works and sound name validation is accurate.
+
 === Auto-Sync (GitHub → Pi) ===
 
 The <code>doorbot-sync.sh</code> script runs every minute via systemd timer:
@@ -176,7 +190,7 @@ systemctl status doorbot-sync.timer
 sudo -u doorbot bash /home/doorbot/doorbot/sync_sounds.sh
 
 # Test server connection
-curl http://yakko.cs.wmich.edu:8878/status
+curl http://yakko.cs.wmich.edu:8878/health
 </pre>
 
 == Configuration ==

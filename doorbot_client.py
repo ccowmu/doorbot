@@ -53,9 +53,34 @@ def poll_server():
     except:
         return None
 
+def get_sound_list():
+    """Return list of available .wav filenames."""
+    try:
+        return [f for f in os.listdir(SOUNDS_DIR) if f.endswith('.wav')]
+    except Exception:
+        return []
+
+def sync_sound_list():
+    """Push available sound list to the server."""
+    try:
+        sounds = get_sound_list()
+        requests.post(
+            SERVER_URL + "/sounds",
+            json={"sounds": sounds},
+            headers={"Authorization": "Bearer " + API_KEY},
+            timeout=5,
+        )
+        print(f"[{get_timestamp()}] Synced {len(sounds)} sounds to server")
+    except Exception as e:
+        print(f"[{get_timestamp()}] Sound list sync error: {e}")
+
 def play_sound(sound=None):
-    """Play a sound file. If sound is specified, play that; otherwise pick random.
+    """Play a sound file. If sound is 'none', skip playback (sneaky mode).
+    If sound is specified, play that; otherwise pick random.
     Returns the Popen process so caller can kill it after MAX_SOUND_DURATION."""
+    if sound == "none":
+        print(f"[{get_timestamp()}] Sneaky mode — no sound")
+        return None
     try:
         if sound:
             path = os.path.join(SOUNDS_DIR, sound)
@@ -64,7 +89,7 @@ def play_sound(sound=None):
                 sound = None
 
         if not sound:
-            wavs = [f for f in os.listdir(SOUNDS_DIR) if f.endswith('.wav')]
+            wavs = get_sound_list()
             if not wavs:
                 print(f"[{get_timestamp()}] No .wav files in {SOUNDS_DIR}")
                 return None
@@ -142,8 +167,10 @@ def main():
     print(f"\nDOORBOT CLIENT - {SERVER_URL}")
     pwm = setup_gpio()
     consecutive_errors = 0
+    poll_count = 0
 
     try:
+        sync_sound_list()
         while True:
             status = poll_server()
             if status is None:
@@ -155,6 +182,10 @@ def main():
                 consecutive_errors = 0
                 if status.get('letmein', False):
                     unlock_door(pwm, sound=status.get('sound', ''))
+            poll_count += 1
+            if poll_count >= 60:
+                sync_sound_list()
+                poll_count = 0
             time.sleep(POLL_INTERVAL)
     except KeyboardInterrupt:
         print("Shutdown")
