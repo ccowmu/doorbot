@@ -1,0 +1,252 @@
+'''Door Bot''' is the automated door lock system for the CCaWMU office. It lets club members unlock the office door remotely from a web interface — click a button, and the deadbolt turns.
+
+== How It Works ==
+
+<pre>
+┌──────────────┐         HTTP          ┌──────────────────┐        GPIO         ┌─────────────┐
+│   Browser    │ ───────────────────▶  │  Server (yakko)  │  ◀── poll 1s ───  │  Pi Client  │
+│  "Unlock!"   │                       │  :8878           │  ──── unlock ──▶  │  (doorbot)  │
+└──────────────┘                       └──────────────────┘                    └──────┬──────┘
+                                                                                     │
+                                                                              ┌──────▼──────┐
+                                                                              │ Stepper     │
+                                                                              │ Motor +     │
+                                                                              │ Deadbolt    │
+                                                                              └─────────────┘
+</pre>
+
+# A user visits the web UI at <code>http://yakko.cs.wmich.edu:8878</code> and clicks '''Unlock Door'''
+# The server sets an unlock flag
+# The Pi client polls the server every second — when it sees the flag, it:
+#* Powers the relay and drives the stepper motor to turn the deadbolt
+#* Waits for the limit switch to confirm the lock is open
+#* Plays a sound through the speaker
+#* Holds the door unlocked for '''10 seconds'''
+#* Reverses the motor to re-lock
+# The server can optionally specify which sound to play
+
+== Hardware ==
+
+{| class="wikitable"
+|-
+! Component !! Details
+|-
+| '''Computer''' || Raspberry Pi Model B Rev 2
+|-
+| '''Hostname''' || <code>doorbot</code>
+|-
+| '''IP Address''' || <code>192.168.1.193</code>
+|-
+| '''Motor''' || Stepper motor driving the deadbolt via PWM
+|-
+| '''Relay''' || Controls motor power
+|-
+| '''Limit Switch''' || Detects when the lock reaches the open position
+|-
+| '''Speaker''' || Plays <code>.wav</code> files on unlock
+|}
+
+=== GPIO Pinout (BCM) ===
+
+{| class="wikitable"
+|-
+! Pin !! Function
+|-
+| GPIO 4 || Relay (motor power)
+|-
+| GPIO 15 || Motor direction
+|-
+| GPIO 18 || Motor PWM signal
+|-
+| GPIO 7 || Limit switch / position sensor
+|}
+
+=== Motor Parameters ===
+
+{| class="wikitable"
+|-
+! Parameter !! Value
+|-
+| PWM Frequency || 500 Hz
+|-
+| Duty Cycle || 50%
+|-
+| Unlock Hold Time || 10 seconds
+|-
+| Reverse Time || 6.5 seconds
+|-
+| Sound Max Duration || 10 seconds
+|}
+
+== Software ==
+
+All source code lives in one repo: '''[https://github.com/ccowmu/doorbot github.com/ccowmu/doorbot]'''
+
+The Pi automatically mirrors this repo. Push to <code>main</code> and the changes go live within 60 seconds — no SSH required.
+
+=== Repository Contents ===
+
+<pre>
+doorbot/
+├── doorbot_client.py        # Main client — polls server, drives hardware
+├── doorbot-client.service    # Systemd unit for the client
+├── doorbot-sync.sh           # Auto-sync script (fetch + reset + restart)
+├── doorbot-sync.service      # Systemd unit for sync
+├── doorbot-sync.timer        # Runs sync every 60 seconds
+├── sync_sounds.sh            # Pulls .wav files from Proton Drive
+├── sounds-sync.service       # Systemd unit for sound sync
+├── sounds-sync.timer         # Runs sound sync every 5 minutes
+├── setup_doorbot.sh          # Fresh Pi provisioning script
+├── sounds/                   # .wav files (gitignored, synced from Proton Drive)
+├── .env                      # API key (gitignored)
+└── README.md
+</pre>
+
+=== Systemd Services ===
+
+{| class="wikitable"
+|-
+! Service !! What It Does
+|-
+| <code>doorbot-client.service</code> || Runs the client. Starts on boot, restarts on failure.
+|-
+| <code>doorbot-sync.timer</code> || Every 60s: pulls from GitHub, restarts client if code changed.
+|-
+| <code>sounds-sync.timer</code> || Every 5min: syncs <code>.wav</code> files from Proton Drive via rclone.
+|}
+
+=== Auto-Sync (GitHub → Pi) ===
+
+The <code>doorbot-sync.sh</code> script runs every minute via systemd timer:
+
+# <code>git fetch origin main</code>
+# Compares local HEAD to remote — if identical, does nothing
+# If there are changes: <code>git reset --hard origin/main</code>
+# Checks if any <code>.service</code> or <code>.timer</code> files changed — if so, copies them to <code>/etc/systemd/system/</code> and reloads systemd
+# Restarts <code>doorbot-client.service</code>
+
+'''To deploy a change:''' just push to <code>main</code> on GitHub. Done.
+
+== Sounds ==
+
+The doorbot plays a random <code>.wav</code> file each time the door unlocks. The server can also request a specific sound by name.
+
+=== Adding Sounds ===
+
+Upload <code>.wav</code> files to the shared '''Proton Drive''' <code>sounds</code> folder. They sync to the Pi automatically every 5 minutes via rclone. The local cache is capped at '''500 MB''' — when it fills up, the oldest files are deleted first.
+
+=== Proton Drive Setup (One-Time) ===
+
+If rclone needs to be reconfigured on the Pi:
+
+<pre>
+sudo apt install rclone
+rclone config
+# Create a new remote named "protondrive"
+# Storage type: protondrive
+# Follow browser prompts to authenticate
+
+sudo cp sounds-sync.service sounds-sync.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sounds-sync.timer
+</pre>
+
+== Common Commands ==
+
+<pre>
+# SSH into the Pi
+ssh doorbot@192.168.1.193
+
+# Check if the client is running
+sudo systemctl status doorbot-client
+
+# View live logs
+sudo journalctl -u doorbot-client -f
+
+# Restart the client
+sudo systemctl restart doorbot-client
+
+# Force an immediate sync from GitHub
+/home/doorbot/doorbot/doorbot-sync.sh
+
+# Check sync timer status
+systemctl status doorbot-sync.timer
+
+# Manually sync sounds from Proton Drive
+sudo -u doorbot bash /home/doorbot/doorbot/sync_sounds.sh
+
+# Test server connection
+curl http://yakko.cs.wmich.edu:8878/status
+</pre>
+
+== Configuration ==
+
+Configuration is at the top of <code>doorbot_client.py</code>:
+
+{| class="wikitable"
+|-
+! Variable !! Default !! Description
+|-
+| <code>SERVER_URL</code> || <code><nowiki>http://yakko.cs.wmich.edu:8878</nowiki></code> || Server to poll
+|-
+| <code>POLL_INTERVAL</code> || <code>1.0</code> || Seconds between polls
+|-
+| <code>UNLOCK_HOLD_TIME</code> || <code>10</code> || Seconds to hold door open
+|-
+| <code>REVERSE_TIME</code> || <code>6.5</code> || Seconds to run motor in reverse
+|-
+| <code>MAX_SOUND_DURATION</code> || <code>10</code> || Kill sound playback after this many seconds
+|}
+
+The API key is stored in <code>/home/doorbot/doorbot/.env</code> (not in the repo).
+
+== Troubleshooting ==
+
+'''Client won't start:'''
+
+<pre>
+sudo journalctl -u doorbot-client -n 50    # Check recent logs
+sudo systemctl status doorbot-client        # Check service state
+</pre>
+
+'''Door doesn't unlock:'''
+* Check the relay is powered: <code>GPIO 4</code> should go HIGH
+* Check motor direction: <code>GPIO 15</code>
+* Check limit switch: <code>GPIO 7</code> reads LOW when pressed
+* Run the client manually for debug output:
+
+<pre>
+sudo systemctl stop doorbot-client
+sudo python3 /home/doorbot/doorbot/doorbot_client.py
+</pre>
+
+'''Sync not working:'''
+
+<pre>
+systemctl status doorbot-sync.timer         # Is the timer active?
+sudo journalctl -u doorbot-sync -n 20       # Check sync logs
+git -C /home/doorbot/doorbot fetch origin    # Can it reach GitHub?
+</pre>
+
+'''No sound playing:'''
+* Check audio output: <code>aplay -l</code>
+* Test manually: <code>aplay -D hw:0,0 /home/doorbot/doorbot/sounds/some_file.wav</code>
+* Check if sounds exist: <code>ls /home/doorbot/doorbot/sounds/*.wav</code>
+
+== Network ==
+
+{| class="wikitable"
+|-
+! Endpoint !! Address
+|-
+| '''Web UI''' || http://yakko.cs.wmich.edu:8878
+|-
+| '''Pi SSH''' || <code>doorbot@192.168.1.193</code>
+|-
+| '''Source Code''' || [https://github.com/ccowmu/doorbot github.com/ccowmu/doorbot]
+|}
+
+== See Also ==
+
+* [[LEDBox]] — the office NeoPixel LED lighting system, controlled by the same server
+* [https://github.com/ccowmu/Office-IoT Office-IoT] — the server that both Door Bot and LEDBox poll
