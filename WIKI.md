@@ -240,5 +240,10 @@ git -C /home/doorbot/doorbot fetch origin    # Can it reach GitHub?
 
 ## See Also
 
-- [LEDBox](https://github.com/ccowmu/LEDBox) — the office LED lighting system, controlled by the same server
-- [Office-IoT](https://github.com/ccowmu/Office-IoT) — the central server that both Doorbot and LEDBox poll
+### LEDBox (Office Lighting)
+- **Wiki:** [LEDBox WIKI](https://github.com/ccowmu/LEDBox/blob/main/WIKI.md)
+- **GitHub:** [ccowmu/LEDBox](https://github.com/ccowmu/LEDBox)
+
+### Office-IoT (Central Server)
+- **Wiki:** [Office-IoT WIKI](https://github.com/ccowmu/Office-IoT/blob/main/WIKI.md)
+- **GitHub:** [ccowmu/Office-IoT](https://github.com/ccowmu/Office-IoT)
