@@ -82,7 +82,7 @@ def unlock_door(pwm):
         pwm.start(MOTOR_DUTY_CYCLE)
         
         # Wait until limit switch triggers
-        timeout = 30
+        timeout = 10
         start_time = time.time()
         
         while GPIO.input(BUTTON_PIN) == GPIO.HIGH:  # HIGH = not pressed
